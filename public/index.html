@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light"><title>AWS MCP · Approvals</title>
+  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+</head>
+<body>
+  <aside>
+    <a class="brand" href="/" aria-label="AWS MCP home"><span class="brand-icon">⌘</span><span>AWS MCP<small>YOUR LOCAL AWS GATEWAY</small></span></a>
+    <nav aria-label="Main navigation">
+      <button class="nav active" id="all-requests"><span class="nav-icon">▤</span> Approvals <span id="queue-count" class="count">0</span></button>
+      <button class="nav" id="history-nav" aria-label="History"><span class="nav-icon">◴</span> History</button>
+      <button class="nav" id="databases-nav" aria-label="Databases"><span class="nav-icon">▱</span> Databases</button>
+      <button class="nav" id="sessions-nav" aria-label="MFA sessions"><span class="nav-icon">◷</span> MFA sessions <span id="mfa-session-count" class="count">0</span></button>
+      <button class="nav" id="policies-nav" aria-label="Policies"><span class="nav-icon">⚙</span> Policies</button>
+      <button class="nav" id="connect-nav"><span class="nav-icon">⌁</span> Connect an agent <span class="nav-arrow">↗</span></button>
+    </nav>
+    <div class="sidebar-label">PROFILES <span id="profile-count">0</span><button id="refresh" title="Refresh profiles" aria-label="Refresh profiles">↻</button></div>
+    <input id="profile-search" placeholder="Search profiles" aria-label="Find a profile">
+    <div id="profiles" class="profiles"></div>
+    <div class="sidebar-bottom"><div><span class="status-dot"></span><span id="connection">Connecting…</span></div><small>Local only · 127.0.0.1</small><button class="quiet" id="clear-sessions">Clear MFA sessions</button></div>
+  </aside>
+  <main>
+    <header><div class="breadcrumb">AWS MCP <span>/</span> <strong id="page-title">Approvals</strong></div><span class="approval-badge"><span class="status-dot"></span><span id="policy-badge-label">Manual approvals · direct results</span></span></header>
+    <div id="error" role="alert" hidden></div>
+    <div id="queue-view">
+      <section class="page-heading"><div><h1>Command approvals</h1><p id="queue-description">AWS commands follow your policies. Unmatched commands wait for approval.</p></div><button class="primary" id="new-command">+ New command</button></section>
+      <section class="metrics" aria-label="Request counts"><div><span class="metric-icon pending-icon">◷</span><div><strong id="pending-count">0</strong><span>Needs your review</span></div></div><div><span class="metric-icon running-icon">↗</span><div><strong id="running-count">0</strong><span>Running</span></div></div><div><span class="metric-icon completed-icon">✓</span><div><strong id="completed-count">0</strong><span>Completed</span></div></div></section>
+      <div class="section-heading"><div class="tabs" aria-label="Filter activity"><button class="selected" data-filter="pending">Needs your review</button><button data-filter="all">All activity</button></div><span id="filter-label"></span></div>
+      <div class="queue-tools"><label class="checkbox-label"><input type="checkbox" id="select-pending"> Select pending in this view</label><span id="selection-count">0 selected</span><button id="review-selected" disabled>Review selected</button><button id="approve-visible" class="primary" disabled>Review all pending</button></div>
+      <section id="requests" aria-live="polite"></section>
+      <details class="compose" id="command-compose"><summary><span><span class="compose-symbol">›_</span> Submit a command yourself</span><span class="details-arrow">+</span></summary><div class="compose-body"><p>It will enter the same approval queue as an agent request.</p>
+        <form id="command-form"><div class="form-row"><label>Profile<select id="profile" aria-label="Profile" required></select></label><label>Region <span class="muted">optional</span><input id="region" placeholder="Profile default"></label></div>
+          <details id="command-builder" class="builder"><summary>Build a command</summary><div class="form-row"><label>AWS service<input id="build-service" placeholder="ec2" autocomplete="off"></label><label>AWS operation<input id="build-operation" placeholder="describe-instances" autocomplete="off"></label></div><label>Arguments as a JSON array<textarea id="build-arguments" aria-label="Arguments as a JSON array" rows="3" placeholder='["--instance-ids", "i-example"]'>[]</textarea></label><button type="button" id="use-built-command">Use command</button><p id="builder-error" role="alert" hidden></p></details>
+          <label>Command<div class="command-input"><span>aws</span><input id="command" aria-label="Command" placeholder="sts get-caller-identity" required autocomplete="off" spellcheck="false"></div></label>
+          <div class="presets"><button type="button" data-command="sts get-caller-identity">Check identity</button><button type="button" data-command="s3 ls">List buckets</button><button type="button" data-command="ec2 describe-instances">EC2 instances</button><button type="button" data-command="sso login">SSO login</button></div>
+          <label>Reason<input id="reason" placeholder="Why are you running this?" maxlength="2000" required></label>
+          <div class="compose-footer"><span>Submitted commands follow your approval policies.</span><button type="button" id="add-command-draft">Add to batch</button><button class="primary" id="submit-command">Submit for approval →</button></div>
+        </form><section class="draft-batch" id="draft-batch" hidden><h2>Command batch</h2><p>Each command is submitted separately and follows its profile’s policies. The queue accepts up to 20 active requests.</p><div id="command-drafts"></div><button id="submit-command-batch" class="primary">Submit batch</button><p id="draft-message" role="status"></p></section>
+      </div></details>
+      <div class="connect-prompt"><span class="connect-prompt-icon">⌁</span><div><strong>Bring your agent into the loop.</strong><p>Connect Claude, Codex, or Cursor in a couple of steps.</p></div><button id="connect-prompt-button">Connect an agent ↗</button></div>
+    </div>
+    <section id="databases-view" hidden>
+      <div class="page-heading"><div><h1>RDS databases</h1><p>Reach private RDS through Session Manager. Approve every query.</p></div><button class="primary" id="add-database">+ Add database</button></div>
+      <div class="connection-flow"><span>Your laptop</span><span>→</span><strong>SSM / EC2</strong><span>→</span><span>Private RDS</span></div>
+      <div id="database-list"></div>
+      <details class="compose" id="database-settings"><summary><span>Database connection settings</span><span class="details-arrow">+</span></summary><div class="compose-body">
+        <p>Saving only stores connection settings. Opening the tunnel and running a query each require approval.</p>
+        <form id="database-form"><input id="db-id" type="hidden">
+          <div class="form-row"><label>Connection name<input id="db-name" maxlength="80" required placeholder="production-reporting"></label><label>Engine<select id="db-engine" aria-label="Database engine"><option value="postgres">PostgreSQL</option><option value="mysql">MySQL</option></select></label></div>
+          <div class="form-row"><label>AWS profile<select id="db-profile" aria-label="Database AWS profile" required></select></label><label>AWS region<input id="db-region" placeholder="us-east-1" required></label></div>
+          <div class="form-row"><label>EC2 instance for Session Manager<input id="db-instance" placeholder="i-0123456789abcdef0" required></label><label>RDS endpoint<input id="db-host" placeholder="your-db.xxxxxx.us-east-1.rds.amazonaws.com" required></label></div>
+          <div class="form-row"><label>Database port<input id="db-port" type="number" min="1" max="65535" value="5432" required></label><label>Database name<input id="db-database" placeholder="app" required></label></div>
+          <div class="form-row"><label>Database username<input id="db-username" autocomplete="off" required></label><label>Database password<input id="db-password" type="password" autocomplete="new-password" placeholder="Kept in memory; re-enter after restart"></label></div>
+          <label>Password environment variable <span class="muted">optional alternative</span><input id="db-password-env" placeholder="RDS_REPORTING_PASSWORD" autocomplete="off"></label>
+          <label class="checkbox-label"><input id="db-read-only" type="checkbox" checked> Read-only connection (recommended)</label>
+          <label id="db-confirm-writes-label" hidden>Type the connection name to enable writes<input id="db-confirm-writes" autocomplete="off"></label>
+          <div class="compose-footer"><span>Verified RDS TLS. Passwords are never saved to disk.</span><button class="primary" id="save-database">Save connection</button></div>
+        </form>
+      </div></details>
+      <section class="setup-card query-compose"><h2>Submit a SQL query</h2><p>SELECT queries require approval too. Results are capped at 200 rows and 512 KiB.</p>
+        <form id="database-query-form"><label>Database connection<select id="query-connection" aria-label="Query database connection" required></select></label>
+          <label>SQL query<textarea id="query-sql" rows="5" maxlength="32768" required placeholder="SELECT current_database(), current_user;"></textarea></label>
+          <label>Bound parameters <span class="muted">optional JSON array · $1 for PostgreSQL, ? for MySQL</span><input id="query-params" placeholder='["example", 10]' spellcheck="false"></label>
+          <label>Query reason<input id="query-reason" maxlength="2000" placeholder="Explain what you want to inspect or change" required></label>
+          <div class="compose-footer"><span>The tunnel must be open before execution.</span><button class="primary" id="submit-query">Submit query for approval →</button></div>
+        </form>
+      </section>
+      <p class="scope-note">Requires AWS CLI, the Session Manager plugin, an SSM-managed EC2 instance, and EC2 network access to RDS. This does not change your AWS networking or permissions.</p>
+    </section>
+    <section id="history-view" hidden>
+      <div class="page-heading"><div><h1>Activity history</h1><p>Commands, SQL queries, decisions, and outcomes—kept across restarts.</p></div><button id="refresh-history">Refresh history</button></div>
+      <section class="metrics" aria-label="History totals"><div><span class="metric-icon running-icon">◴</span><div><strong id="history-total">0</strong><span>Recorded requests</span></div></div><div><span class="metric-icon completed-icon">✓</span><div><strong id="history-completed">0</strong><span>Completed</span></div></div><div><span class="metric-icon pending-icon">!</span><div><strong id="history-attention">0</strong><span>Need attention</span></div></div></section>
+      <p id="history-storage-note" class="scope-note"></p><div id="history-warning" role="alert" hidden></div>
+      <div class="tabs history-tabs"><button id="history-requests-tab" class="selected">Request history</button><button id="history-server-tab">Server activity</button></div>
+      <div id="history-requests-panel"><form id="history-filter-form" class="history-filters"><label class="history-search">Search history<input id="history-search" type="search" placeholder="SQL, command, reason, client, or request ID"></label><label>History type<select id="history-kind" aria-label="History type"><option value="">All types</option><option value="aws">AWS</option><option value="sql">SQL</option><option value="tunnel">SSM tunnel</option></select></label><label>History status<select id="history-status" aria-label="History status"><option value="">All outcomes</option><option value="completed">Completed</option><option value="failed">Failed</option><option value="denied">Denied</option><option value="blocked">Blocked by policy</option><option value="canceled">Canceled</option><option value="interrupted">Interrupted before execution</option><option value="outcome_unknown">Outcome unknown</option><option value="result_unavailable">Unreleased output unavailable</option><option value="awaiting_review">Result needs review</option><option value="pending">Pending approval</option><option value="withheld">Output withheld</option><option value="expired">Approval expired</option></select></label><label>History profile<input id="history-profile" placeholder="All profiles"></label><button id="search-history">Search</button><button id="reset-history" type="button">Reset</button></form>
+        <div class="history-table-wrap"><table class="history-table"><thead><tr><th>Time</th><th>Request</th><th>Target</th><th>Outcome</th><th></th></tr></thead><tbody id="history-rows"></tbody></table><div id="history-empty" class="empty" hidden><h2>No matching records</h2><p>Requests will be recorded here from submission through their final outcome.</p></div></div>
+        <div class="history-pagination"><span id="history-page-label"></span><button id="history-previous">Previous</button><button id="history-next">Next</button></div>
+      </div>
+      <div id="history-server-panel" hidden><p class="setup-note">Broker starts/stops, detected crashes, policy changes, connection changes, and session-management actions.</p><div id="history-system-events"></div><div class="history-pagination"><span id="history-system-page-label"></span><button id="history-system-previous">Previous events</button><button id="history-system-next">Next events</button></div></div>
+      <p class="scope-note history-privacy">Records are stored locally until you remove the history database. Only released output is saved. Authentication passwords and MFA-code fields are excluded; query text, parameters, and published results may still contain sensitive application data.</p>
+    </section>
+    <section id="sessions-view" hidden>
+      <div class="page-heading"><div><h1>MFA sessions</h1><p>Reuse temporary AWS credentials until they expire, including after a restart.</p></div><button id="forget-all-sessions">Forget all sessions</button></div>
+      <section class="setup-card"><h2>Remember sessions on this Mac</h2><p class="setup-note">Temporary credentials are saved in macOS Keychain. MFA codes are never saved. Saving a session does not extend its AWS expiration or change your approval policies.</p>
+        <label class="checkbox-label session-toggle"><input id="remember-sessions" type="checkbox" checked> Remember active and future MFA sessions across restarts</label>
+        <p id="mfa-storage-note" class="scope-note"></p><div id="mfa-storage-warning" role="alert" hidden></div>
+        <div class="compose-footer"><span>Credentials remain on this machine and are never returned by session tools.</span><button id="save-active-sessions">Save active sessions</button></div>
+      </section>
+      <div id="mfa-session-list"></div>
+      <p class="scope-note">To start or renew a session, submit an AWS command and enter MFA in its approval dialog. SSO sessions are managed separately by AWS CLI. Forgetting a session removes its local cache; it does not revoke it at AWS or stop operations already running.</p>
+    </section>
+    <section id="policies-view" hidden>
+      <div class="page-heading"><div><h1>Approval policies</h1><p>Decide what can run automatically and what must wait for you.</p></div><button id="pause-automation">Pause automation</button></div>
+      <section class="setup-card"><h2>Default behavior</h2><p class="setup-note">These policies apply to AWS CLI requests. Database queries and managed SSM tunnels stay manual.</p>
+        <form id="policy-settings-form"><fieldset id="policy-fields" disabled><div class="form-row"><label>AWS approval mode<select id="policy-mode" aria-label="AWS approval mode"><option value="manual">Custom rules · ask by default</option><option value="auto_reads">Auto-approve recognized reads</option><option value="read_only">Read-only · block other commands</option></select></label><label>Default result delivery<select id="policy-delivery" aria-label="Default result delivery"><option value="direct">Send directly to agent</option><option value="review">Review and mask before sending</option></select></label></div>
+          <p class="policy-explanation" id="policy-mode-help"></p>
+          <label class="checkbox-label"><input id="policy-paused" type="checkbox"> Pause all automatic approvals (blocking rules still apply)</label>
+          <h3 class="policy-subheading">Always ask for these profiles</h3><div id="protected-profiles" class="protected-profiles"></div>
+          <p class="scope-note">Protected profiles require a popup even when an Allow rule matches. MFA without a cached session requires a popup too.</p>
+        </fieldset></form>
+      </section>
+      <section class="setup-card"><div class="section-heading rule-heading"><h2>Command rules</h2><span>Deny → Ask → Allow</span></div><p class="setup-note">Exact arguments are the default. A rule can be scoped to one profile and region. Add rules below, then save policies to activate your changes.</p><div id="policy-rules"></div>
+        <details id="rule-compose" class="compose"><summary><span>+ Add a command rule</span><span class="details-arrow">+</span></summary><div class="compose-body"><form id="policy-rule-form"><fieldset id="rule-fields" disabled>
+          <div class="form-row"><label>Rule name<input id="rule-name" placeholder="Allow development inventory" maxlength="80" required></label><label>Action<select id="rule-action" aria-label="Rule action"><option value="allow">Allow automatically</option><option value="ask">Always ask</option><option value="deny">Block execution</option></select></label></div>
+          <div class="form-row"><label>Rule profile<select id="rule-profile" aria-label="Rule profile"></select></label><label>Rule region <span class="muted">optional · any region when empty</span><input id="rule-region" placeholder="us-east-1"></label></div>
+          <label>Rule command<input id="rule-command" placeholder="ec2 describe-instances --instance-ids i-…" required spellcheck="false"></label>
+          <div class="form-row"><label>Argument matching<select id="rule-match" aria-label="Argument matching"><option value="exact">Exact command and arguments</option><option value="operation">Any arguments for this service + operation</option></select></label><label>Rule expiry<select id="rule-expiry" aria-label="Rule expiry"><option value="3600000">In 1 hour</option><option value="86400000">In 24 hours</option><option value="604800000">In 7 days</option><option value="0">No expiry</option></select></label></div>
+          <label id="rule-confirm-label" hidden>Type the service and operation to allow changes or sensitive reads automatically<input id="rule-confirm" autocomplete="off" placeholder="ec2 start-instances"></label>
+          <p class="scope-note">Allow rules can run changes without a popup and use your default result delivery. Rule arguments are saved locally; do not embed credentials. Commands involving local files or interactive sessions always stay manual.</p>
+          <div class="compose-footer"><span>This adds a draft rule. Save policies to activate it.</span><button class="primary" id="add-rule">Add rule</button></div>
+        </fieldset></form></div></details>
+      </section>
+      <div class="policy-savebar"><span id="policy-save-state" role="status">Changes take effect only after saving.</span><button id="reload-policies">Reload saved</button><button class="primary" type="submit" form="policy-settings-form" id="save-policies" disabled>Save policies</button></div>
+      <section class="setup-card"><h2>Test a saved policy</h2><p class="setup-note">See the decision without running an AWS command. Unsaved changes are not included.</p>
+        <form id="policy-preview-form"><fieldset id="preview-fields" disabled><div class="form-row"><label>Test profile<select id="preview-profile" aria-label="Test profile" required></select></label><label>Test region <span class="muted">optional</span><input id="preview-region" placeholder="Profile default"></label></div><label>Test command<input id="preview-command" placeholder="sts get-caller-identity" required></label><button id="test-policy">Test policy</button></fieldset></form>
+        <p id="policy-preview-result" role="status" hidden></p>
+      </section>
+      <details class="compose policy-catalog"><summary><span>Recognized read-command catalog</span><span class="details-arrow">+</span></summary><div class="compose-body"><p>The catalog uses specific operation names, not prefixes. Sensitive reads are not automatically allowed by read mode. Unrecognized operations need a rule or manual approval; read-only mode blocks them.</p><pre id="policy-catalog"></pre></div></details>
+    </section>
+    <section id="connect-view" hidden>
+      <div class="page-heading"><div><h1>Connect an agent</h1><p>One local server. The same approval flow for every agent.</p></div></div>
+      <div class="connection-flow"><span>Your agent</span><span>→</span><strong>AWS MCP</strong><span>→</span><span>You approve</span><span>→</span><span>AWS</span></div>
+      <section class="setup-card"><div class="step-heading"><span class="step-number">1</span><div><h2>Add the MCP server</h2><p>Choose your client, then copy its configuration.</p></div></div>
+        <div id="client-tabs" class="client-tabs" role="tablist" aria-label="Agent client"></div>
+        <div id="setup-panel" role="tabpanel"><p id="setup-location" class="setup-location"></p>
+        <div class="code-panel"><div class="code-toolbar"><span id="setup-code-label">Configuration</span><button id="copy-setup">Copy</button></div><pre id="setup-code" tabindex="0"></pre></div>
+        <p id="setup-note" class="setup-note"></p><a id="setup-docs" class="docs-link" target="_blank" rel="noreferrer">Official setup guide ↗</a></div>
+      </section>
+      <section class="setup-card"><div class="step-heading"><span class="step-number">2</span><div><h2>Reconnect and try it</h2><p>Restart your client or reconnect the MCP server. Then ask:</p></div></div><div class="example-prompt">“Use aws_approval to list my profiles, then check my AWS identity.”</div><p class="setup-note">AWS commands follow your saved policies. Requests needing review appear in Approvals; enter MFA there if needed. Output is sent directly by default, with optional review and masking.</p></section>
+      <div class="approval-policy"><span class="policy-icon">✓</span><div><strong>Your policies control AWS execution.</strong><p>Recognized reads or explicit rules can allow AWS commands automatically. Unmatched commands, protected profiles, and database requests need your review. Agents cannot change these policies.</p></div></div>
+      <p class="scope-note">This applies to commands sent through this MCP. To require it exclusively, restrict direct AWS CLI and credential access in your agent’s environment.</p>
+    </section>
+    <footer><span>AWS MCP <span class="footer-dot">·</span> Local workspace</span><span>Your policies. Your approvals. Your cloud.</span></footer>
+  </main>
+  <dialog id="batch-dialog"><form id="batch-form"><div class="dialog-title"><span class="eyebrow">BATCH REVIEW</span><button type="button" id="close-batch" aria-label="Close batch review">×</button></div><h2 id="batch-title">Review pending requests</h2><p>Only the requests listed below are included. They run in order, one at a time. A failure stops the batch; remaining requests stay pending. Keep this window open until approvals finish.</p><div id="batch-requests"></div><div id="batch-auth"></div><label class="checkbox-label"><input type="checkbox" id="batch-direct" checked>Send AWS results directly to the agent</label><p class="muted">Unchecked: hold AWS output for masking. Database output is returned directly.</p><p id="batch-error" role="alert" hidden></p><p id="batch-progress" role="status"></p><div class="dialog-actions"><button type="button" id="batch-individual">Review one by one</button><button type="button" id="stop-batch" hidden>Stop after current request</button><button class="primary" id="approve-batch">Approve listed requests</button></div></form></dialog>
+  <dialog id="approval-dialog"><form id="approval-form"><div class="dialog-title"><span class="eyebrow">COMMAND REVIEW</span><button type="button" id="close-dialog" aria-label="Close">×</button></div><h2 id="dialog-heading">Run this AWS command?</h2><p id="dialog-reason"></p><p id="dialog-error" role="alert" hidden></p><pre id="dialog-command"></pre><p id="dialog-warning">The command runs on the selected profile. Its output is returned to the requester.</p>
+    <div id="mfa-section"><p id="mfa-session-hint" class="scope-note" hidden></p><details id="mfa-fields"><summary>MFA <span class="muted">if required</span></summary><label>MFA device ARN / serial<input id="mfa-serial" autocomplete="off" placeholder="arn:aws:iam::…:mfa/…"></label><label>One-time MFA code<input id="mfa-code" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="6-digit code"></label><label class="checkbox-label"><input id="remember-mfa" type="checkbox" checked> Remember new MFA credentials in Keychain until they expire</label><small>Enter the code here only. It is never sent to your agent or saved in the audit log.</small></details></div>
+    <label id="confirm-label" hidden>Type the profile name to confirm<input id="confirmation" autocomplete="off"></label>
+    <section id="result-delivery" class="result-delivery"><h3>After execution</h3><label class="checkbox-label"><input id="send-directly" type="checkbox" checked> Send result directly to the agent</label><p id="delivery-help">The result will be returned to the agent immediately after execution.</p></section>
+    <div class="dialog-actions"><button type="button" id="deny">Deny request</button><button class="primary" id="approve">Approve & execute →</button></div>
+  </form></dialog>
+  <dialog id="result-dialog"><form id="result-form"><div class="dialog-title"><span class="eyebrow">RESULT REVIEW · NOT SENT YET</span><button type="button" id="close-result" aria-label="Close result review">×</button></div>
+    <h2>Review before sending</h2><p id="result-context"></p><p id="result-error" role="alert" hidden></p>
+    <p class="result-instructions">Edit the output below or mask sensitive text. Only the reviewed text will be sent to the agent.</p>
+    <label>Standard output<textarea id="review-stdout" rows="9" spellcheck="false" autocomplete="off"></textarea></label>
+    <label>Error output<textarea id="review-stderr" rows="4" spellcheck="false" autocomplete="off"></textarea></label>
+    <div class="mask-tools"><button type="button" id="mask-selection">Mask selected text</button><label>Text to mask everywhere<input id="mask-value" type="password" autocomplete="off" placeholder="Exact text, such as an account ID"></label><button type="button" id="mask-all">Mask all matches</button></div>
+    <small>Masking applies to both output fields. Known AWS credential fields are also automatically redacted. The exit code is preserved.</small>
+    <div class="dialog-actions"><button type="button" id="withhold-result">Don’t send result</button><button class="primary" id="send-result">Send reviewed result to agent →</button></div>
+  </form></dialog>
+  <dialog id="history-dialog"><div class="dialog-title"><span class="eyebrow">PERSISTED REQUEST RECORD</span><button type="button" id="close-history" aria-label="Close history record">×</button></div><h2 id="history-detail-title">Request details</h2><p id="history-detail-id" class="request-id"></p><dl id="history-detail-meta" class="history-detail-meta"></dl><p id="history-recovery-note" class="history-recovery" hidden></p><h3 class="policy-subheading">Command / SQL</h3><pre id="history-detail-command"></pre><p id="history-detail-reason"></p><section id="history-output-section"><h3 class="policy-subheading">Saved result</h3><p id="history-output-note" class="scope-note"></p><pre id="history-detail-output"></pre></section><h3 class="policy-subheading">Timeline</h3><ol id="history-detail-events" class="history-timeline"></ol><div class="dialog-actions"><span class="scope-note">History is read-only. Opening a record never executes it.</span><button id="download-history-record">Download record</button></div></dialog>
+</body>
+</html>

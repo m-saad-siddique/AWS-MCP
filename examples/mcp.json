@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "aws_approval": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/AWS-MCP/src/cli.js",
+        "mcp"
+      ]
+    }
+  }
+}

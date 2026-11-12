@@ -1,0 +1,49 @@
+{
+  "name": "aws-approval-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local AWS MCP with explicit human approval and MFA",
+  "type": "module",
+  "engines": {
+    "node": ">=22.14"
+  },
+  "bin": {
+    "aws-approval-mcp": "src/cli.js"
+  },
+  "scripts": {
+    "start": "node src/cli.js ui",
+    "mcp": "node src/cli.js mcp",
+    "test": "node --test",
+    "check": "node --check src/cli.js && node --check src/broker.js && node --check src/aws.js && node --check public/app.js && node --check src/database.js && node --check src/tunnel.js && node --check src/policy.js && node --check src/mfa-sessions.js && node --check src/keychain.js && node --check src/history.js",
+    "test:ui": "node scripts/ui-smoke.mjs",
+    "test:postgres": "node scripts/database-smoke.mjs",
+    "test:mysql": "node scripts/mysql-smoke.mjs",
+    "test:keychain": "node scripts/keychain-smoke.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "mysql2": "^3.24.6",
+    "pg": "^8.23.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "playwright": "1.65.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/m-saad-siddique/AWS-MCP.git"
+  },
+  "bugs": {
+    "url": "https://github.com/m-saad-siddique/AWS-MCP/issues"
+  },
+  "homepage": "https://github.com/m-saad-siddique/AWS-MCP#readme",
+  "keywords": [
+    "mcp",
+    "aws",
+    "approval",
+    "mfa",
+    "rds",
+    "session-manager"
+  ]
+}
