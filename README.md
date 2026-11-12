@@ -16,7 +16,9 @@ AWS MCP is an early-stage, self-hosted desktop utility for one local OS user. It
 - **Private RDS:** PostgreSQL/MySQL queries through managed Session Manager tunnels, with separate approvals and verified TLS.
 - **Persistent history:** search commands, SQL, decisions, outcomes, and released results across restarts. Interrupted work is never replayed automatically.
 
-![Profile-grouped approval queue with fictional requests](examples/profile-groups.png)
+[![AWS MCP approval dashboard with fictional requests](examples/dashboard.png)](examples/profile-groups.png)
+
+[Batch review](examples/batch-review.png) · [History](examples/history.png) · [RDS query approval](examples/sql-approval.png) · [Output masking](examples/result-review.png)
 
 All screenshots use synthetic profiles, credentials, and results. They are produced by the browser test, which never calls AWS.
 
