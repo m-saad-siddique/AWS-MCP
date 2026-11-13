@@ -172,7 +172,7 @@ export class Broker {
     if (req.headers.host !== new URL(this.origin).host) return this.json(res, 403, { error: 'Invalid host.' });
     if (req.headers.origin && req.headers.origin !== this.origin) return this.json(res, 403, { error: 'Cross-origin requests are blocked.' });
     const path = new URL(req.url, this.origin).pathname;
-    if (req.method === 'GET' && ['/', '/app.js', '/style.css'].includes(path)) {
+    if (req.method === 'GET' && ['/', '/app.js', '/commands.js', '/style.css'].includes(path)) {
       const file = path === '/' ? 'index.html' : path.slice(1);
       res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html');
       return res.end(await readFile(join(publicDir, file)));

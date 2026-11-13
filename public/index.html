@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light"><title>AWS MCP · Approvals</title>
-  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+  <link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script>
 </head>
 <body>
   <aside>
@@ -33,7 +33,7 @@
       <details class="compose" id="command-compose"><summary><span><span class="compose-symbol">›_</span> Submit a command yourself</span><span class="details-arrow">+</span></summary><div class="compose-body"><p>It will enter the same approval queue as an agent request.</p>
         <form id="command-form"><div class="form-row"><label>Profile<select id="profile" aria-label="Profile" required></select></label><label>Region <span class="muted">optional</span><input id="region" placeholder="Profile default"></label></div>
           <details id="command-builder" class="builder"><summary>Build a command</summary><div class="form-row"><label>AWS service<input id="build-service" placeholder="ec2" autocomplete="off"></label><label>AWS operation<input id="build-operation" placeholder="describe-instances" autocomplete="off"></label></div><label>Arguments as a JSON array<textarea id="build-arguments" aria-label="Arguments as a JSON array" rows="3" placeholder='["--instance-ids", "i-example"]'>[]</textarea></label><button type="button" id="use-built-command">Use command</button><p id="builder-error" role="alert" hidden></p></details>
-          <label>Command<div class="command-input"><span>aws</span><input id="command" aria-label="Command" placeholder="sts get-caller-identity" required autocomplete="off" spellcheck="false"></div></label>
+          <label>Command<div class="command-input"><span>aws</span><textarea id="command" aria-label="Command" placeholder="sts get-caller-identity, or paste a full multiline AWS command" rows="3" required autocomplete="off" spellcheck="false"></textarea></div></label>
           <div class="presets"><button type="button" data-command="sts get-caller-identity">Check identity</button><button type="button" data-command="s3 ls">List buckets</button><button type="button" data-command="ec2 describe-instances">EC2 instances</button><button type="button" data-command="sso login">SSO login</button></div>
           <label>Reason<input id="reason" placeholder="Why are you running this?" maxlength="2000" required></label>
           <div class="compose-footer"><span>Submitted commands follow your approval policies.</span><button type="button" id="add-command-draft">Add to batch</button><button class="primary" id="submit-command">Submit for approval →</button></div>
@@ -47,11 +47,14 @@
       <div id="database-list"></div>
       <details class="compose" id="database-settings"><summary><span>Database connection settings</span><span class="details-arrow">+</span></summary><div class="compose-body">
         <p>Saving only stores connection settings. Opening the tunnel and running a query each require approval.</p>
+        <details class="ssm-import"><summary>Import a full SSM command</summary><label for="ssm-command">Session Manager command</label><textarea id="ssm-command" rows="7" spellcheck="false" placeholder="Paste aws ssm start-session with --profile, --region, --target, --document-name and JSON --parameters"></textarea><button type="button" id="import-session-command">Import forwarding settings</button><p id="ssm-import-message" role="status"></p></details>
         <form id="database-form"><input id="db-id" type="hidden">
           <div class="form-row"><label>Connection name<input id="db-name" maxlength="80" required placeholder="production-reporting"></label><label>Engine<select id="db-engine" aria-label="Database engine"><option value="postgres">PostgreSQL</option><option value="mysql">MySQL</option></select></label></div>
           <div class="form-row"><label>AWS profile<select id="db-profile" aria-label="Database AWS profile" required></select></label><label>AWS region<input id="db-region" placeholder="us-east-1" required></label></div>
           <div class="form-row"><label>EC2 instance for Session Manager<input id="db-instance" placeholder="i-0123456789abcdef0" required></label><label>RDS endpoint<input id="db-host" placeholder="your-db.xxxxxx.us-east-1.rds.amazonaws.com" required></label></div>
           <div class="form-row"><label>Database port<input id="db-port" type="number" min="1" max="65535" value="5432" required></label><label>Database name<input id="db-database" placeholder="app" required></label></div>
+          <label>Local port <span class="muted">optional; empty chooses an available port</span><input id="db-local-port" type="number" min="1" max="65535" placeholder="Auto, or e.g. 5447"></label>
+          <details class="session-preview"><summary>Session command preview</summary><pre id="db-session-preview"></pre></details>
           <div class="form-row"><label>Database username<input id="db-username" autocomplete="off" required></label><label>Database password<input id="db-password" type="password" autocomplete="new-password" placeholder="Kept in memory; re-enter after restart"></label></div>
           <label>Password environment variable <span class="muted">optional alternative</span><input id="db-password-env" placeholder="RDS_REPORTING_PASSWORD" autocomplete="off"></label>
           <label class="checkbox-label"><input id="db-read-only" type="checkbox" checked> Read-only connection (recommended)</label>

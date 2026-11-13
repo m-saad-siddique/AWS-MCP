@@ -18,7 +18,7 @@ AWS MCP is an early-stage, self-hosted desktop utility for one local OS user. It
 
 [![AWS MCP approval dashboard with fictional requests](examples/dashboard.png)](examples/profile-groups.png)
 
-[Batch review](examples/batch-review.png) · [History](examples/history.png) · [RDS query approval](examples/sql-approval.png) · [Output masking](examples/result-review.png)
+[SSM command import](examples/ssm-import.png) · [Batch review](examples/batch-review.png) · [History](examples/history.png) · [RDS query approval](examples/sql-approval.png) · [Output masking](examples/result-review.png)
 
 All screenshots use synthetic profiles, credentials, and results. They are produced by the browser test, which never calls AWS.
 
@@ -166,7 +166,7 @@ Connections default to read-only: they accept statements beginning with SELECT, 
 
 PostgreSQL and MySQL use their prepared/extended protocols with bound scalar parameters and accept one statement per request. PostgreSQL uses `$1`, `$2`, etc.; MySQL uses `?`. The broker manages transaction setup and commit around the approved statement. Each query uses a new connection. Results retain at most **200 rows / 512 KiB of row data**; statements are consumed to completion before commit rather than stopping execution when the returned result is truncated. Queries have a **30-second overall timeout** and a **10-second connection timeout**. Very large individual protocol rows can still require driver memory, and a large result can time out even when only a small subset is returned. Use explicit SQL filters/LIMIT.
 
-TLS is required, with RDS hostname validation even though the socket connects through localhost. The public CA bundle in `assets/rds-global-bundle.pem` comes from [AWS's RDS trust store](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem); update it from that source when AWS rotates CAs. Verification cannot be disabled in the UI.
+TLS is required, with RDS hostname validation even though the socket connects through localhost. RDS Proxy endpoints use Node's standard public CA trust store because their certificates are issued by ACM; direct RDS endpoints use the bundled RDS trust certificates. See [AWS's explanation of RDS Proxy certificate trust](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html). The public CA bundle in `assets/rds-global-bundle.pem` comes from [AWS's RDS trust store](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem); update it from that source when AWS rotates CAs. Verification cannot be disabled in the UI.
 
 An approved tunnel uses an automatically selected local port, stays available for **15 minutes**, and then closes. The readiness check verifies the local Session Manager listener; the first approved SQL query checks RDS connectivity and database authentication. There is no automatic tunnel reopen. **Close tunnel** cancels pending/running requests for that connection and terminates the local forwarding process. Killing a local tunnel does not guarantee immediate removal of the remote SSM session record; normal AWS session expiration still applies. Cancellation, connection loss, and timeouts cannot undo already committed database changes, especially implicit-commit MySQL DDL. Inspect database state before retrying an uncertain write.
 
@@ -196,6 +196,12 @@ Example agent input:
 ```
 
 The existing MCP registration supports the database tools too. Reconnect/restart your agent after updating this server to discover the new tools.
+
+### Paste a Session Manager command
+
+Open **Databases → Add database → Import a full SSM command**. Paste a single-line or multiline `aws ssm start-session` command using `AWS-StartPortForwardingSessionToRemoteHost`, then click **Import forwarding settings**. It fills the profile, region, EC2 target, database hostname, remote port, and local port without executing anything. Enter the connection name, database name, and credentials, save, then request and approve the tunnel. SQL still requires approval separately.
+
+The same forwarding fields are editable directly, including **Local port**. Leave it empty for an automatically selected port, or enter a fixed port such as `5447`. The session preview and approval show the chosen forwarding configuration. If another terminal session already uses that local port, close that session or choose another port; the broker will not silently connect to an unrelated listener. Imported commands accept JSON forwarding parameters and shell quoting/line continuations, never shell execution, scripts, or chained commands. The command composer also accepts full multiline AWS commands with `--profile` and `--region`. Pasted forwarding commands open this managed-tunnel setup instead of starting an unmanaged session; other commands enter the normal approval queue.
 
 ## MCP tools
 

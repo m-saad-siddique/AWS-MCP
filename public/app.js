@@ -1,3 +1,4 @@
+import {splitCommand,parseAwsCommand,parseSessionCommand} from './commands.js';
 const $ = id => document.getElementById(id);
 const hash = location.hash.slice(1);
 if (hash) { sessionStorage.setItem('aws-mcp-token', hash); history.replaceState(null, '', '/'); }
@@ -19,23 +20,8 @@ async function api(path, body) {
 }
 function displayCommand(r) {
   if (r.kind === 'sql') return r.sql + (r.params?.length ? '\n\nBound parameters: ' + JSON.stringify(r.params) : '');
-  if (r.kind === 'tunnel') return 'aws ssm start-session --target ' + r.target.instanceId + '\n  --document-name AWS-StartPortForwardingSessionToRemoteHost\n  --parameters ' + JSON.stringify({host:[r.target.host],portNumber:[String(r.target.port)],localPortNumber:['auto']}) + '\n  --profile ' + JSON.stringify(r.profile) + ' --region ' + r.region;
+  if (r.kind === 'tunnel') return 'aws ssm start-session --target ' + r.target.instanceId + '\n  --document-name AWS-StartPortForwardingSessionToRemoteHost\n  --parameters ' + JSON.stringify({host:[r.target.host],portNumber:[String(r.target.port)],localPortNumber:[String(r.target.localPort||'auto')]}) + '\n  --profile ' + JSON.stringify(r.profile) + ' --region ' + r.region;
   return 'aws ' + r.args.map(a => /^[a-zA-Z0-9_./:@=-]+$/.test(a) ? a : JSON.stringify(a)).join(' ') + ' --profile ' + JSON.stringify(r.profile) + (r.region ? ' --region ' + r.region : ''); }
-// Shell-like quoting is just input convenience. It never invokes a shell.
-function splitCommand(value) {
-  if (value.trim().startsWith('[')) { const args = JSON.parse(value); if (!Array.isArray(args)) throw new Error('Expected an argument array.'); return args; }
-  const args = []; let word = '', quote = '', escaped = false, started = false;
-  for (const char of value.trim()) {
-    if (escaped) { word += char; escaped = false; started = true; continue; }
-    if (char === '\\' && quote !== "'") { escaped = true; started = true; continue; }
-    if (quote) { if (char === quote) quote = ''; else word += char; started = true; continue; }
-    if (char === '"' || char === "'") { quote = char; started = true; continue; }
-    if (/\s/.test(char)) { if (started) { args.push(word); word = ''; started = false; } } else { word += char; started = true; }
-  }
-  if (quote || escaped) throw new Error('Close the quote or escape in your command.');
-  if (started) args.push(word);
-  if (args[0] === 'aws') args.shift(); return args;
-}
 function renderProfiles() {
   $('profiles').replaceChildren();
   const search = $('profile-search').value.toLowerCase();
@@ -180,7 +166,7 @@ $('result-form').onsubmit = async e => {
   } catch (e) { error(e.message); }
   finally { $('send-result').disabled = false; $('withhold-result').disabled = false; }
 };
-$('command-form').onsubmit = e => { e.preventDefault(); act(async () => { await api('requests', { profile: $('profile').value, args: splitCommand($('command').value), region: $('region').value.trim(), reason: $('reason').value }); setActivityFilter('pending'); }); };
+$('command-form').onsubmit = e => { e.preventDefault(); act(async () => { const request=composerRequest();if(routeForwardingCommand(request))return;await api('requests',request); setActivityFilter('pending'); }); };
 $('clear-sessions').onclick = () => act(() => api('sessions/clear', {}));
 $('refresh').onclick = () => act(loadProfiles);
 $('profile-search').oninput = renderProfiles;
@@ -248,21 +234,21 @@ function renderDatabases() {
   }
 }
 function editDatabase(c) {
-  $('database-form').reset();
-  const fields={id:'id',name:'name',engine:'engine',profile:'profile',region:'region',instance:'instanceId',host:'host',port:'port',database:'database',username:'username','password-env':'passwordEnv'};
+  $('database-form').reset();resetSessionImport();
+  const fields={id:'id',name:'name',engine:'engine',profile:'profile',region:'region',instance:'instanceId',host:'host',port:'port','local-port':'localPort',database:'database',username:'username','password-env':'passwordEnv'};
   for(const [field,key] of Object.entries(fields)) $('db-'+field).value=c[key]||'';
   $('db-read-only').checked=c.readOnly; $('db-confirm-writes-label').hidden=c.readOnly; $('db-confirm-writes').required=!c.readOnly;
-  $('database-settings').open=true; $('db-name').focus();
+  $('database-settings').open=true;updateSessionPreview(); $('db-name').focus();
 }
 $('databases-nav').onclick=()=>showView('databases');
-$('add-database').onclick=()=>{ $('database-form').reset(); $('db-id').value=''; $('db-confirm-writes-label').hidden=true; $('db-confirm-writes').required=false; $('database-settings').open=true; $('db-name').focus(); };
+$('add-database').onclick=()=>{ $('database-form').reset(); $('db-id').value='';resetSessionImport(); $('db-confirm-writes-label').hidden=true; $('db-confirm-writes').required=false; $('database-settings').open=true;updateSessionPreview(); $('db-name').focus(); };
 $('db-engine').onchange=()=>{ $('db-port').value=$('db-engine').value==='mysql'?'3306':'5432'; };
 $('db-profile').onchange=()=>{ const p=profiles.find(p=>p.name===$('db-profile').value); if(p?.region) $('db-region').value=p.region; };
 $('db-read-only').onchange=()=>{ $('db-confirm-writes-label').hidden=$('db-read-only').checked; $('db-confirm-writes').required=!$('db-read-only').checked; };
 $('database-form').onsubmit=e=>{ e.preventDefault(); act(async()=>{
   $('save-database').disabled=true;
   try {
-    const value=await api('databases',{id:$('db-id').value||undefined,name:$('db-name').value,engine:$('db-engine').value,profile:$('db-profile').value,region:$('db-region').value,instanceId:$('db-instance').value,host:$('db-host').value,port:Number($('db-port').value),database:$('db-database').value,username:$('db-username').value,password:$('db-password').value,passwordEnv:$('db-password-env').value,readOnly:$('db-read-only').checked,confirmWrites:$('db-confirm-writes').value});
+    const value=await api('databases',{id:$('db-id').value||undefined,name:$('db-name').value,engine:$('db-engine').value,profile:$('db-profile').value,region:$('db-region').value,instanceId:$('db-instance').value,host:$('db-host').value,port:Number($('db-port').value),localPort:Number($('db-local-port').value||0),database:$('db-database').value,username:$('db-username').value,password:$('db-password').value,passwordEnv:$('db-password-env').value,readOnly:$('db-read-only').checked,confirmWrites:$('db-confirm-writes').value});
     $('db-password').value=''; $('database-form').reset(); $('db-id').value=''; $('database-settings').open=false; $('db-confirm-writes-label').hidden=true; $('db-confirm-writes').required=false;
     await refresh(); $('query-connection').value=value.id;
   } finally { $('save-database').disabled=false; }
@@ -485,7 +471,7 @@ function renderCommandDrafts(){
 }
 $('add-command-draft').onclick=()=>{
   if(!$('command-form').reportValidity())return;
-  try{if(commandDrafts.length>=20)throw new Error('A batch can contain up to 20 commands.');const args=splitCommand($('command').value);if(args.length<2||args.some(a=>typeof a!=='string'))throw new Error('Enter a service, operation and string arguments.');commandDrafts.push({kind:'aws',profile:$('profile').value,region:$('region').value.trim(),args,reason:$('reason').value});$('draft-message').textContent='';renderCommandDrafts();}catch(e){error(e.message);}
+  try{if(commandDrafts.length>=20)throw new Error('A batch can contain up to 20 commands.');const request=composerRequest();if(routeForwardingCommand(request))return;if(request.args.length<2)throw new Error('Enter a service and operation.');commandDrafts.push({kind:'aws',...request});$('draft-message').textContent='';renderCommandDrafts();}catch(e){error(e.message);}
 };
 $('submit-command-batch').onclick=async()=>{
   if(!commandDrafts.length)return;$('submit-command-batch').disabled=true;$('add-command-draft').disabled=true;let submitted=0;for(const button of $('command-drafts').querySelectorAll('button'))button.disabled=true;
@@ -493,3 +479,32 @@ $('submit-command-batch').onclick=async()=>{
   catch(e){$('draft-message').textContent=`${submitted} submitted. Stopped: ${e.message} Remaining drafts were kept. Check the queue before resubmitting after a connection error.`;}
   finally{renderCommandDrafts();$('submit-command-batch').disabled=false;$('add-command-draft').disabled=false;await refresh();}
 };
+
+function updateSessionPreview(){
+  const port=$('db-local-port').value||'auto';
+  $('db-session-preview').textContent=displayCommand({kind:'tunnel',profile:$('db-profile').value,region:$('db-region').value,target:{instanceId:$('db-instance').value||'i-example',host:$('db-host').value||'your-db.rds.amazonaws.com',port:$('db-port').value||5432,localPort:port}});
+}
+$('database-form').addEventListener('input',updateSessionPreview);$('database-form').addEventListener('change',updateSessionPreview);
+$('import-session-command').onclick=()=>{
+  try{const fields=parseSessionCommand($('ssm-command').value);
+    if(!profiles.some(p=>p.name===fields.profile))throw new Error('Profile '+fields.profile+' is not configured locally. Configure it with AWS CLI, then refresh profiles.');
+    for(const [field,key] of Object.entries({profile:'profile',region:'region',instance:'instanceId',host:'host',port:'port','local-port':'localPort'}))$('db-'+field).value=fields[key]||'';
+    if(fields.port===5432)$('db-engine').value='postgres';else if(fields.port===3306)$('db-engine').value='mysql';
+    updateSessionPreview();$('ssm-import-message').textContent='Imported forwarding settings. Enter the database name and credentials, save, then request tunnel approval. Nothing has executed.';
+  }catch(e){$('ssm-import-message').textContent=e.message;}
+};
+
+function composerRequest(){
+ const value=parseAwsCommand($('command').value,{profile:$('profile').value,region:$('region').value.trim()});
+ if(!profiles.some(p=>p.name===value.profile))throw new Error('Choose a configured AWS profile.');
+ $('profile').value=value.profile;$('region').value=value.region;
+ return {...value,reason:$('reason').value};
+}
+function routeForwardingCommand(request){
+ if(request.args[0]!=='ssm'||request.args[1]!=='start-session'||!request.args.some(arg=>arg==='AWS-StartPortForwardingSessionToRemoteHost'||arg==='--document-name=AWS-StartPortForwardingSessionToRemoteHost'))return false;
+ showView('databases');$('add-database').click();$('ssm-command').closest('details').open=true;
+ $('ssm-command').value=JSON.stringify([...request.args,'--profile',request.profile,'--region',request.region||profiles.find(p=>p.name===request.profile)?.region||'']);
+ $('import-session-command').click();return true;
+}
+
+function resetSessionImport(){ $('ssm-command').value='';$('ssm-import-message').textContent='';$('ssm-command').closest('details').open=false; }

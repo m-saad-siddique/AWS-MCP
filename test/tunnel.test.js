@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import net from 'node:net';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -13,7 +14,8 @@ test('managed tunnel passes exact remote forwarding arguments, stays open, and c
  let call;
  const tunnels=new TunnelManager({idleMs:100,aws:{context:async()=>({p:{name:'dev'},base:{PATH:process.env.PATH},session:{env:{AWS_ACCESS_KEY_ID:'TEST_SESSION'}}})},spawnProcess:(bin,args,opts)=>{call={bin,args,opts};return spawn(process.execPath,[script,...args],opts);}});
  try{
-  const result=await tunnels.open(c); assert.ok(result.localPort>0);assert.equal(tunnels.status(c.id).status,'open');assert.equal(call.opts.shell,false);
+  const probe=net.createServer();await new Promise(resolve=>probe.listen(0,'127.0.0.1',resolve));const requested=probe.address().port;await new Promise(resolve=>probe.close(resolve));
+  const result=await tunnels.open({...c,localPort:requested});assert.equal(result.localPort,requested); assert.ok(result.localPort>0);assert.equal(tunnels.status(c.id).status,'open');assert.equal(call.opts.shell,false);
   const parameters=JSON.parse(call.args[call.args.indexOf('--parameters')+1]);assert.deepEqual(parameters.host,[c.host]);assert.deepEqual(parameters.portNumber,['5432']);assert.ok(!call.args.includes('--profile'));assert.equal(call.opts.env.AWS_ACCESS_KEY_ID,'TEST_SESSION');assert.ok(!JSON.stringify(result).includes('TEST_SESSION'));
   await assert.rejects(tunnels.open(c),/already exists/);
   await delay(150);assert.equal(tunnels.status(c.id).status,'closed');assert.throws(()=>tunnels.getPort(c.id),/No open tunnel/);
@@ -23,4 +25,10 @@ test('canceling during authentication prevents a tunnel subprocess from starting
  let release,spawned=false;const signal=new AbortController();
  const tunnels=new TunnelManager({aws:{context:()=>new Promise(resolve=>{release=()=>resolve({p:{name:'dev'},base:{}});})},spawnProcess:()=>{spawned=true;throw new Error('should not spawn');}});
  const opening=tunnels.open(c,{signal:signal.signal});signal.abort();release();await assert.rejects(opening,/canceled/);assert.equal(spawned,false);assert.equal(tunnels.status(c.id).status,'closed');
+});
+
+test('an occupied requested local port fails before starting a second SSM session',async()=>{
+ const occupied=net.createServer();await new Promise(resolve=>occupied.listen(0,'127.0.0.1',resolve));let spawned=false;
+ const manager=new TunnelManager({aws:{context:async()=>({p:{name:'dev'},base:{}})},spawnProcess:()=>{spawned=true;throw new Error('Unexpected subprocess');}});
+ try{await assert.rejects(manager.open({...c,localPort:occupied.address().port}),/already in use/);assert.equal(spawned,false);assert.equal(manager.status(c.id).status,'closed');}finally{manager.closeAll();await new Promise(resolve=>occupied.close(resolve));}
 });

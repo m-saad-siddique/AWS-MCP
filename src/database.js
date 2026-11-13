@@ -9,6 +9,13 @@ import { TunnelManager } from './tunnel.js';
 
 const caPath = new URL('../assets/rds-global-bundle.pem', import.meta.url);
 const maxRows = 200, maxBytes = 512 * 1024;
+export async function databaseTlsCa(host, { ca } = {}) {
+  if (ca !== undefined) return ca;
+  // RDS Proxy uses ACM-issued certificates, not the private RDS CA hierarchy.
+  // Omitting ca preserves Node's public trust store (and NODE_EXTRA_CA_CERTS).
+  const proxy = /(?:^|\.)proxy-[a-z0-9]+\.[a-z0-9-]+\.rds\.amazonaws\.com(?:\.cn)?$/i.test(host);
+  return proxy ? undefined : readFile(caPath, 'utf8');
+}
 export function sqlRisk(sql) {
   let text = sql.trimStart();
   // Only remove leading comments; never rewrite the SQL sent to the database.
@@ -28,16 +35,18 @@ export function validateConnection(input, profiles) {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9.-]{1,252}$/.test(host) || host.includes('..')) throw new Error('Use the RDS hostname without a protocol or port.');
   const port = Number(input.port || (engine === 'postgres' ? 5432 : 3306));
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid database port.');
+  const localPort=Number(input.localPort||0);
+  if(!Number.isInteger(localPort)||localPort<0||localPort>65535)throw new Error('Invalid local port. Choose Auto or a port from 1 to 65535.');
   const passwordEnv = input.passwordEnv || '';
   if (typeof passwordEnv !== 'string' || (passwordEnv && !/^[A-Z_][A-Z0-9_]{0,100}$/.test(passwordEnv))) throw new Error('Invalid password environment variable.');
   if (input.readOnly !== undefined && typeof input.readOnly !== 'boolean') throw new Error('Invalid read-only setting.');
   if (input.password !== undefined && (typeof input.password !== 'string' || input.password.length > 4096)) throw new Error('Invalid password.');
   if (input.readOnly === false && input.confirmWrites !== name) throw new Error('Type the connection name to enable database writes.');
-  return { name, engine, profile, region, host, port, instanceId, database, username, passwordEnv, readOnly: input.readOnly !== false };
+  return { name, engine, profile, region, host, port, localPort, instanceId, database, username, passwordEnv, readOnly: input.readOnly !== false };
 }
 function json(value) { return JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.toString() : v); }
 export async function runDatabaseQuery(c, port, password, sql, params, { signal, timeoutMs = 30000, ca: testCa } = {}) {
-  const ca = testCa || await readFile(caPath, 'utf8');
+  const ca = await databaseTlsCa(c.host, { ca: testCa });
   if (signal?.aborted) throw new Error('Query canceled.');
   let destroy = () => {}, timeout, abort, stopped;
   // Race the full operation, including authentication, so a stalled driver cannot keep a request running.
@@ -134,7 +143,7 @@ export class DatabaseService {
     const c = this.connections.get(input?.connectionId);
     if (!c) throw new Error('Choose a saved database connection.');
     if (typeof input.reason !== 'string' || !input.reason.trim() || input.reason.length > 2000) throw new Error('Provide a reason of at most 2000 characters.');
-    const common = { kind, connectionId: c.id, connectionName: c.name, connectionRevision: c.revision, profile: c.profile, region: c.region, reason: input.reason, target: { host: c.host, port: c.port, database: c.database, engine: c.engine, instanceId: c.instanceId, username: c.username, readOnly: c.readOnly }, confirmationTarget: c.name };
+    const common = { kind, connectionId: c.id, connectionName: c.name, connectionRevision: c.revision, profile: c.profile, region: c.region, reason: input.reason, target: { host: c.host, port: c.port, localPort:c.localPort||0, database: c.database, engine: c.engine, instanceId: c.instanceId, username: c.username, readOnly: c.readOnly }, confirmationTarget: c.name };
     if (kind === 'tunnel') return { ...common, args: ['ssm', 'start-session'], risk: 'write' };
     if (typeof input.sql !== 'string' || !input.sql.trim() || input.sql.length > 32768 || input.sql.includes('\0')) throw new Error('SQL must be between 1 and 32768 characters.');
     const params = input.params ?? [];

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fix RDS Proxy certificate verification by retaining Node public CA trust.
+- Import full multiline SSM forwarding commands into database settings.
+- Support requested local tunnel ports, previews, and occupied-port errors.
+
 ## Initial public release
 
 - Local stdio MCP and browser approval dashboard for AWS CLI profiles.

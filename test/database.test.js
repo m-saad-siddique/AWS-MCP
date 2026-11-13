@@ -4,10 +4,16 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
-import { DatabaseService, validateConnection } from '../src/database.js';
+import { DatabaseService, validateConnection, databaseTlsCa } from '../src/database.js';
 import { Broker } from '../src/broker.js';
 const profiles = async () => [{ name: 'dev' }];
 const input = { name: 'reports', engine: 'postgres', profile: 'dev', region: 'us-east-1', host: 'example.us-east-1.rds.amazonaws.com', instanceId: 'i-0123456789abcdef0', database: 'app', username: 'reader', password: 'SECRET_PASSWORD', readOnly: true };
+test('RDS Proxy retains public CA trust while direct RDS retains its bundled CA', async()=>{
+ const direct=await readFile(new URL('../assets/rds-global-bundle.pem',import.meta.url),'utf8');
+ for(const host of ['reports.proxy-example123.ap-northeast-1.rds.amazonaws.com','reports.endpoint.proxy-example123.us-east-1.rds.amazonaws.com','reports.proxy-example123.cn-north-1.rds.amazonaws.com.cn','REPORTS.PROXY-EXAMPLE123.US-EAST-1.RDS.AMAZONAWS.COM'])assert.equal(await databaseTlsCa(host),undefined);
+ for(const host of [input.host,'reports.cluster-example123.us-east-1.rds.amazonaws.com','reports.proxy-example123.us-east-1.rds.amazonaws.com.attacker.example','proxy.example.com'])assert.equal(await databaseTlsCa(host),direct);
+ assert.equal(await databaseTlsCa('reports.proxy-example123.us-east-1.rds.amazonaws.com',{ca:'EXPLICIT_TEST_CA'}),'EXPLICIT_TEST_CA');
+});
 function fixture() {
  const calls = [];
  const tunnels = { opened: false, status() {return {status:this.opened?'open':'closed'};}, async open(c, auth) { calls.push({type:'tunnel',c,auth}); this.opened=true; return {localPort:15432};}, getPort() {if(!this.opened)throw new Error('No open tunnel.');return 15432;}, close(){this.opened=false;}, closeAll(){this.opened=false;} };
@@ -18,9 +24,9 @@ function fixture() {
 test('connection metadata persists; password stays in memory and is absent after restart', async()=>{
  const {databases,broker}=fixture(); const dir=await mkdtemp(join(tmpdir(),'rds-test-'));
  try {
-  await databases.init(dir); const c=await databases.save(input); assert.equal(c.passwordReady,true);
-  const disk=await readFile(join(dir,'databases.json'),'utf8'); assert.ok(!disk.includes('SECRET_PASSWORD')); assert.ok(!JSON.stringify(databases.list()).includes('SECRET_PASSWORD'));
-  const second=new DatabaseService({profiles}); await second.init(dir); assert.equal(second.list()[0].passwordReady,false); second.close();
+  await databases.init(dir); const c=await databases.save({...input,localPort:5447}); assert.equal(c.passwordReady,true);
+  const disk=await readFile(join(dir,'databases.json'),'utf8'); assert.equal(JSON.parse(disk)[0].localPort,5447); assert.ok(!disk.includes('SECRET_PASSWORD')); assert.ok(!JSON.stringify(databases.list()).includes('SECRET_PASSWORD'));
+  const second=new DatabaseService({profiles}); await second.init(dir); assert.equal(second.list()[0].passwordReady,false);assert.equal(second.list()[0].localPort,5447); second.close();
  }finally{await broker.close();await rm(dir,{recursive:true});}
 });
 test('opening the tunnel never authorizes SELECT; each query separately waits for approval', async()=>{
@@ -89,4 +95,9 @@ test('editing the destination without a new password discards the old cached pas
   const c=await databases.save(input);assert.equal(c.passwordReady,true);
   const changed=await databases.save({...input,id:c.id,host:'different.rds.amazonaws.com',password:''});assert.equal(changed.passwordReady,false);
  }finally{await broker.close();}
+});
+
+test('local forwarding port is validated, persisted and included in approval targets',async()=>{
+ const {databases,broker}=fixture();
+ try{const saved=await databases.save({...input,localPort:5447});assert.equal(saved.localPort,5447);const request=databases.prepare({connectionId:saved.id,reason:'Forwarding port test'},'tunnel');assert.equal(request.target.localPort,5447);for(const localPort of [-1,65536,1.5,'not-a-port'])assert.throws(()=>validateConnection({...input,localPort},[{name:'dev'}]),/local port/);assert.equal(validateConnection(input,[{name:'dev'}]).localPort,0);}finally{await broker.close();}
 });

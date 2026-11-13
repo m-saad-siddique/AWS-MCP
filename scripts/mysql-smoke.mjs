@@ -8,11 +8,12 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { runDatabaseQuery } from '../src/database.js';
+import {checkProxyTrust,proxyTestHost} from './proxy-trust-smoke.mjs';
 const run=promisify(execFile),dir=await mkdtemp(join(tmpdir(),'aws-mcp-mysql-'));
 const cert=join(dir,'cert.pem'),key=join(dir,'key.pem'),name='aws-mcp-test-'+randomUUID().slice(0,8);
 let created=false;
 try{
- await run('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',key,'-out',cert,'-days','1','-subj','/CN=example.rds.amazonaws.com','-addext','subjectAltName=DNS:example.rds.amazonaws.com']);
+ await run('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',key,'-out',cert,'-days','1','-subj','/CN=example.rds.amazonaws.com','-addext','subjectAltName=DNS:example.rds.amazonaws.com,DNS:'+proxyTestHost]);
  // Public disposable test key; the container's mysql user must be able to read it.
  await chmod(dir,0o755);await chmod(key,0o644);
  await run('docker',['run','--rm','-d','--name',name,'-e','MYSQL_ROOT_PASSWORD=TEST_ONLY_PASSWORD','-e','MYSQL_ROOT_HOST=%','-e','MYSQL_DATABASE=app','-p','127.0.0.1::3306','--mount',`type=bind,source=${dir},target=/tls,readonly`,'mysql:8.4','--ssl-cert=/tls/cert.pem','--ssl-key=/tls/key.pem']);created=true;
@@ -33,7 +34,8 @@ try{
  const huge=await runDatabaseQuery(c,port,'TEST_ONLY_PASSWORD',"SELECT REPEAT('x',600000) AS value",[],opts);assert.equal(huge.rows.length,0);assert.equal(huge.truncated,true);
  await assert.rejects(runDatabaseQuery(c,port,'TEST_ONLY_PASSWORD','SELECT SLEEP(5)',[],{...opts,timeoutMs:50}),/timed out|timeout/i);
  const abort=new AbortController();const pending=runDatabaseQuery(c,port,'TEST_ONLY_PASSWORD','SELECT SLEEP(5)',[],{...opts,signal:abort.signal});setTimeout(()=>abort.abort(),50);await assert.rejects(pending,/canceled/);
- console.log('MySQL passed: verified TLS/hostname through local stream, bound parameters, single-statement enforcement, read-only transaction, write result headers, committed writes, byte limits, timeout, cancellation. No AWS connection used.');
+ await checkProxyTrust(c,port,'TEST_ONLY_PASSWORD',cert);
+ console.log('MySQL passed: proxy public trust, rejected wrong hostname/direct untrusted CA, verified TLS/hostname through local stream, bound parameters, single-statement enforcement, read-only transaction, write result headers, committed writes, byte limits, timeout, cancellation. No AWS connection used.');
 }finally{
  if(created)await run('docker',['rm','-f',name]).catch(()=>{});
  await rm(dir,{recursive:true,force:true});
