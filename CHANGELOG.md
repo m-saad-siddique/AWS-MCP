@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Apply PostgreSQL statement timeouts after connecting to support RDS Proxy startup restrictions.
+
 - Fix RDS Proxy certificate verification by retaining Node public CA trust.
 - Import full multiline SSM forwarding commands into database settings.
 - Support requested local tunnel ports, previews, and occupied-port errors.

@@ -57,12 +57,15 @@ export async function runDatabaseQuery(c, port, password, sql, params, { signal,
   });
   const operation = async () => {
     if (c.engine === 'postgres') {
-      const client = new pg.Client({ host: '127.0.0.1', port, user: c.username, password, database: c.database, application_name: 'aws-approval-mcp', connectionTimeoutMillis: 10000, statement_timeout: timeoutMs, ssl: { ca, rejectUnauthorized: true, servername: c.host, checkServerIdentity: (_, cert) => tls.checkServerIdentity(c.host, cert) } });
+      const client = new pg.Client({ host: '127.0.0.1', port, user: c.username, password, database: c.database, application_name: 'aws-approval-mcp', connectionTimeoutMillis: 10000, ssl: { ca, rejectUnauthorized: true, servername: c.host, checkServerIdentity: (_, cert) => tls.checkServerIdentity(c.host, cert) } });
       client.on('error', () => {});
       destroy = () => { client.connection?.stream?.destroy(); void client.end().catch(() => {}); };
       try {
         await client.connect(); if (stopped) throw new Error('Query interrupted.');
         await client.query(c.readOnly ? 'BEGIN READ ONLY' : 'BEGIN');
+        // RDS Proxy rejects statement_timeout in the startup packet. Set it only
+        // after BEGIN, scoped to this transaction so pooled connections reset it.
+        await client.query("SELECT pg_catalog.set_config('statement_timeout', $1, true)", [String(timeoutMs)]);
         // Extended protocol parses one statement. Consume it fully before commit,
         // retaining only a bounded result so RETURNING queries never stop mid-command.
         const result = await new Promise((resolve, reject) => {
