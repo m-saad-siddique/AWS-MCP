@@ -2,9 +2,10 @@ import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 
-async function freePort() {
+async function freePort(requested=0) {
   const server = net.createServer();
-  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+  try{await new Promise((resolve, reject) => { server.once('error', reject); server.listen(requested, '127.0.0.1', resolve); });}
+  catch(e){if(e.code==='EADDRINUSE')throw new Error(`Local port ${requested} is already in use. Close the other session or choose another local port.`);throw e;}
   const port = server.address().port;
   await new Promise(resolve => server.close(resolve));
   return port;
@@ -31,7 +32,7 @@ export class TunnelManager {
     try {
       const { p, base, session } = await this.aws.context({ profile: connection.profile, args: ['ssm', 'start-session'] }, auth);
       if (auth.signal?.aborted || this.tunnels.get(connection.id) !== t) throw new Error('Tunnel opening canceled.');
-      t.port = await this.port();
+      t.port = await this.port(connection.localPort||0);
       const args = ['ssm', 'start-session', '--target', connection.instanceId, '--document-name', 'AWS-StartPortForwardingSessionToRemoteHost', '--parameters', JSON.stringify({ host: [connection.host], portNumber: [String(connection.port)], localPortNumber: [String(t.port)] }), '--region', connection.region];
       if (!session) args.push('--profile', p.name);
       t.child = this.spawnProcess(process.env.AWS_MCP_AWS_BIN || 'aws', args, { shell: false, detached: process.platform !== 'win32', windowsHide: true, env: { ...base, ...session?.env }, stdio: ['pipe', 'pipe', 'pipe'] });

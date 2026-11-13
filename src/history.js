@@ -26,7 +26,7 @@ export function historySnapshot(r) {
   const keys=['id','kind','profile','region','reason','connectionId','connectionName','risk','createdAt','expiresAt','startedAt','finishedAt','reviewedAt','status','deliveryMode','outputReviewed','autoApproved','policy','recoveryNote','source','clientName','historyError','recovered','historySessionId','executionExitCode','mfaUsed','mfaSessionReused','rememberMfa'];
   const result=Object.fromEntries(keys.filter(key=>r[key]!==undefined).map(key=>[key,safeValue(r[key])]));
   result.args=safeArgs(r.args);
-  if(r.target)result.target=Object.fromEntries(['host','port','database','engine','instanceId','username','readOnly'].filter(key=>r.target[key]!==undefined).map(key=>[key,safeValue(r.target[key])]));
+  if(r.target)result.target=Object.fromEntries(['host','port','localPort','database','engine','instanceId','username','readOnly'].filter(key=>r.target[key]!==undefined).map(key=>[key,safeValue(r.target[key])]));
   if(r.sql!==undefined){
     const credentialSql=/\b(?:CREATE|ALTER)\s+(?:USER|ROLE|LOGIN)\b|\bSET\s+PASSWORD\b/i.test(r.sql);
     result.sql=credentialSql?'[Credential-management SQL omitted from history]':safeText(r.sql);

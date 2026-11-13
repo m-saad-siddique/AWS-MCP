@@ -14,7 +14,7 @@ const profiles = [
 ];
 const errors = [], calls = [], dbCalls = [];
 let releaseSlow;
-const fakeTunnels = { openIds: new Set(), status(id) {return {status:this.openIds.has(id)?'open':'closed'};}, async open(c,auth) {this.openIds.add(c.id);dbCalls.push({kind:'tunnel',auth});return {localPort:15432};}, getPort(id) {if(!this.openIds.has(id))throw new Error('No tunnel');return 15432;}, close(id){this.openIds.delete(id);},closeAll(){this.openIds.clear();} };
+const fakeTunnels = { openIds: new Set(), status(id) {return {status:this.openIds.has(id)?'open':'closed'};}, async open(c,auth) {this.openIds.add(c.id);dbCalls.push({kind:'tunnel',auth,connection:c});return {localPort:c.localPort||15432};}, getPort(id) {if(!this.openIds.has(id))throw new Error('No tunnel');return 15432;}, close(id){this.openIds.delete(id);},closeAll(){this.openIds.clear();} };
 const databases=new DatabaseService({profiles:async()=>profiles,tunnels:fakeTunnels,query:async(...args)=>{dbCalls.push({kind:'sql',args});return {rows:[{answer:42}],fields:['answer'],truncated:false};}});
 const mfaDir=await mkdtemp(join(tmpdir(),'mfa-ui-'));
 const mfaStore={available:true,records:[],async read(){return structuredClone(this.records);},async write(rows){this.records=structuredClone(rows);},async remove(){this.records=[];}};
@@ -102,13 +102,23 @@ try {
  await page.getByRole('button',{name:'Review & mask result',exact:true}).click();
  await page.getByRole('button',{name:'Don’t send result',exact:true}).click();await page.locator('#result-dialog').waitFor({state:'hidden'});
  assert.equal((await agentView(withheld.id)).status,'withheld');assert.equal((await agentView(withheld.id)).result,undefined);
+ const sessionCommand=['aws ssm start-session','--profile development','--region us-east-1','--target i-0123456789abcdef0','--document-name AWS-StartPortForwardingSessionToRemoteHost',"--parameters '{\"portNumber\":[\"5432\"],\"localPortNumber\":[\"5447\"],\"host\":[\"example.proxy-test123.us-east-1.rds.amazonaws.com\"]}'"].join(' \\\n ');
+ const callsBeforeImport=calls.length,requestsBeforeImport=broker.requests.size;
+ await page.locator('#new-command').click();await page.getByLabel('Command',{exact:true}).fill(sessionCommand);await page.getByLabel('Reason',{exact:true}).fill('Configure managed database forwarding');
+ await page.getByRole('button',{name:'Submit for approval',exact:false}).click();await page.locator('#ssm-import-message').getByText('Nothing has executed.',{exact:false}).waitFor();
+ assert.equal(calls.length,callsBeforeImport);assert.equal(broker.requests.size,requestsBeforeImport);assert.equal(await page.locator('#db-local-port').inputValue(),'5447');
  await page.getByRole('button',{name:'Databases',exact:true}).click();
  await page.getByRole('button',{name:'Add database'}).click();
  await page.locator('#db-name').fill('RDS reporting');
- await page.locator('#db-profile').selectOption('development');
- await page.locator('#db-region').fill('us-east-1');
- await page.locator('#db-instance').fill('i-0123456789abcdef0');
- await page.locator('#db-host').fill('example.us-east-1.rds.amazonaws.com');
+ await page.locator('.ssm-import > summary').click();
+
+ await page.getByLabel('Session Manager command',{exact:true}).fill(sessionCommand+' && echo unsafe');await page.getByRole('button',{name:'Import forwarding settings',exact:true}).click();
+ await page.locator('#ssm-import-message').getByText('chained commands',{exact:false}).waitFor();assert.equal(dbCalls.length,0);
+ await page.getByLabel('Session Manager command',{exact:true}).fill(sessionCommand);await page.getByRole('button',{name:'Import forwarding settings',exact:true}).click();
+ await page.locator('#ssm-import-message').getByText('Nothing has executed.',{exact:false}).waitFor();
+ assert.equal(await page.locator('#db-profile').inputValue(),'development');assert.equal(await page.locator('#db-port').inputValue(),'5432');assert.equal(await page.locator('#db-local-port').inputValue(),'5447');
+ assert.match(await page.locator('#db-session-preview').textContent(),/localPortNumber.*5447/);
+ await page.screenshot({path:new URL('../examples/ssm-import.png',import.meta.url).pathname,fullPage:true});
  await page.locator('#db-database').fill('app');
  await page.locator('#db-username').fill('reporter');
  await page.locator('#db-password').fill('TEST_ONLY_PASSWORD');
@@ -125,7 +135,7 @@ try {
  assert.equal(await page.getByLabel('One-time MFA code').isVisible(),false);
  await page.getByRole('button',{name:'Approve & execute'}).click();
  await page.locator('#approval-dialog').waitFor({state:'hidden'});
- assert.equal(dbCalls.length,1);
+ assert.equal(dbCalls.length,1);assert.equal(dbCalls[0].connection.localPort,5447);
  await page.getByRole('button',{name:'Databases',exact:true}).click();
  await page.getByText('Tunnel open',{exact:true}).waitFor();
  await page.getByLabel('SQL query',{exact:true}).fill('SELECT $1 AS answer');
@@ -334,5 +344,5 @@ try {
  await page.locator('#history-system-events').getByText('Broker stopped',{exact:true}).waitFor();
  await page.locator('#history-system-events').getByText('Broker started',{exact:true}).first().waitFor();
  assert.deepEqual(errors,[]);
- console.log('UI passed: command builder validation, multi-profile draft submission, profile grouping, per-profile bulk approval with MFA reuse, frozen batch membership, selected held results, one-by-one review, destructive confirmations, stop on failure, select all across profiles, stop after current request, mobile groups, persistent History search, SQL parameters/results/timeline, sanitized JSON download, held-output privacy, mobile history, broker restart recovery without replay, server lifecycle, MFA session status, remember toggle, secure save retry, per-profile forget, cached-session reuse, mobile sessions, saved policies, automatic reads, protected profiles, exact Allow and operation-wide Block rules, policy simulation, pause/resume, mobile policies, direct/held AWS delivery, selection and literal masking, review draft preservation, release/withhold, mobile result editor, RDS connection configuration, tunnel approval with MFA, separate SELECT approval, password handling, database mobile view, connection snippets for four clients, clipboard copy, keyboard tabs, mobile setup,  profile loading, queued execution, MFA approval, output, destructive confirmation, mobile overflow, zero browser errors.');
+ console.log('UI passed: full multiline SSM command import, no execution on import, rejected chained command, requested local port and command preview, command builder validation, multi-profile draft submission, profile grouping, per-profile bulk approval with MFA reuse, frozen batch membership, selected held results, one-by-one review, destructive confirmations, stop on failure, select all across profiles, stop after current request, mobile groups, persistent History search, SQL parameters/results/timeline, sanitized JSON download, held-output privacy, mobile history, broker restart recovery without replay, server lifecycle, MFA session status, remember toggle, secure save retry, per-profile forget, cached-session reuse, mobile sessions, saved policies, automatic reads, protected profiles, exact Allow and operation-wide Block rules, policy simulation, pause/resume, mobile policies, direct/held AWS delivery, selection and literal masking, review draft preservation, release/withhold, mobile result editor, RDS connection configuration, tunnel approval with MFA, separate SELECT approval, password handling, database mobile view, connection snippets for four clients, clipboard copy, keyboard tabs, mobile setup,  profile loading, queued execution, MFA approval, output, destructive confirmation, mobile overflow, zero browser errors.');
 }catch(e){const page=browser?.contexts()[0]?.pages()[0];if(page){await page.screenshot({path:'/tmp/aws-mcp-batch-failure.png',fullPage:true}).catch(()=>{});console.error('UI diagnostics:',await page.locator('#error, #dialog-error, #batch-error, #builder-error, #draft-message').allTextContents());}throw e;}finally{await browser?.close();await broker.close();await rm(mfaDir,{recursive:true,force:true});}

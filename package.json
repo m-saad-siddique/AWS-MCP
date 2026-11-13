@@ -14,7 +14,7 @@
     "start": "node src/cli.js ui",
     "mcp": "node src/cli.js mcp",
     "test": "node --test",
-    "check": "node --check src/cli.js && node --check src/broker.js && node --check src/aws.js && node --check public/app.js && node --check src/database.js && node --check src/tunnel.js && node --check src/policy.js && node --check src/mfa-sessions.js && node --check src/keychain.js && node --check src/history.js",
+    "check": "node --check src/cli.js && node --check src/broker.js && node --check src/aws.js && node --check public/app.js && node --check src/database.js && node --check src/tunnel.js && node --check src/policy.js && node --check src/mfa-sessions.js && node --check src/keychain.js && node --check src/history.js && node --check public/commands.js",
     "test:ui": "node scripts/ui-smoke.mjs",
     "test:postgres": "node scripts/database-smoke.mjs",
     "test:mysql": "node scripts/mysql-smoke.mjs",

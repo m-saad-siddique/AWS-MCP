@@ -7,17 +7,19 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import net from 'node:net';
 import { runDatabaseQuery } from '../src/database.js';
+import {checkProxyTrust,proxyTestHost} from './proxy-trust-smoke.mjs';
 const run=promisify(execFile), dir=await mkdtemp(join(tmpdir(),'aws-mcp-pg-'));
 const data=join(dir,'data'), cert=join(dir,'cert.pem'), key=join(dir,'key.pem');
 let started=false;
 try{
  await run('initdb',['-D',data,'-U','mcp_test','-A','trust','--no-locale']);
- await run('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',key,'-out',cert,'-days','1','-subj','/CN=example.rds.amazonaws.com','-addext','subjectAltName=DNS:example.rds.amazonaws.com']);await chmod(key,0o600);
+ await run('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',key,'-out',cert,'-days','1','-subj','/CN=example.rds.amazonaws.com','-addext','subjectAltName=DNS:example.rds.amazonaws.com,DNS:'+proxyTestHost]);await chmod(key,0o600);
  const probe=net.createServer();await new Promise(resolve=>probe.listen(0,'127.0.0.1',resolve));const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));
  await run('pg_ctl',['-D',data,'-l',join(dir,'server.log'),'-o',`-h 127.0.0.1 -p ${port} -k ${dir} -c ssl=on -c ssl_cert_file=${cert} -c ssl_key_file=${key}`,'-w','start']);started=true;
  const c={engine:'postgres',host:'example.rds.amazonaws.com',database:'postgres',username:'mcp_test',readOnly:true};
  const opts={ca:await readFile(cert,'utf8')};
  const result=await runDatabaseQuery(c,port,'TEST_ONLY','SELECT $1::int AS answer',[42],opts);assert.deepEqual(result.rows,[{answer:42}]);
+ const timeoutSetting=await runDatabaseQuery(c,port,'TEST_ONLY',"SELECT current_setting('statement_timeout') AS configured",[],opts);assert.equal(timeoutSetting.rows[0].configured,'30s');
  await assert.rejects(runDatabaseQuery({...c,host:'wrong.rds.amazonaws.com'},port,'TEST_ONLY','SELECT 1',[],opts),/certificate|altname|Hostname/i);
  await assert.rejects(runDatabaseQuery(c,port,'TEST_ONLY','SELECT 1; SELECT 2',[],opts),/multiple commands/);
  await assert.rejects(runDatabaseQuery(c,port,'TEST_ONLY','CREATE TABLE denied(id int)',[],opts),/read-only/);
@@ -30,7 +32,8 @@ try{
  const saved=await runDatabaseQuery(c,port,'TEST_ONLY','SELECT * FROM smoke WHERE id=7',[],opts);assert.deepEqual(saved.rows,[{id:7}]);
  await assert.rejects(runDatabaseQuery(c,port,'TEST_ONLY','SELECT pg_sleep(5)',[],{...opts,timeoutMs:50}),/timed out|statement timeout/);
  const abort=new AbortController();const pending=runDatabaseQuery(c,port,'TEST_ONLY','SELECT pg_sleep(5)',[],{...opts,signal:abort.signal});setTimeout(()=>abort.abort(),50);await assert.rejects(pending,/canceled/);
- console.log('PostgreSQL passed: verified TLS/hostname, bound parameters, one statement, read-only transaction, row/byte limits, committed writes, timeout, cancellation. No AWS connection used.');
+ await checkProxyTrust(c,port,'TEST_ONLY',cert);
+ console.log('PostgreSQL passed: transaction-local server timeout, proxy public trust, rejected wrong hostname/direct untrusted CA, verified TLS/hostname, bound parameters, one statement, read-only transaction, row/byte limits, committed writes, timeout, cancellation. No AWS connection used.');
 }finally{
  if(started)await run('pg_ctl',['-D',data,'-m','immediate','-w','stop']).catch(()=>{});
  await rm(dir,{recursive:true,force:true});
