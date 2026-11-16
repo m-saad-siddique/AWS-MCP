@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Detect IPv6-only Session Manager listeners and route database sockets to the detected loopback address.
+- Preserve credential-redacted CLI/plugin startup errors and allow a 60-second tunnel startup window.
+
 - Apply PostgreSQL statement timeouts after connecting to support RDS Proxy startup restrictions.
 
 - Fix RDS Proxy certificate verification by retaining Node public CA trust.

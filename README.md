@@ -197,6 +197,12 @@ Example agent input:
 
 The existing MCP registration supports the database tools too. Reconnect/restart your agent after updating this server to discover the new tools.
 
+### Tunnel startup diagnostics
+
+Managed tunnels wait up to 60 seconds for the plugin to announce the requested local port and for that port to accept a loopback connection. Both IPv4 (`127.0.0.1`) and IPv6 (`::1`) listeners are supported; database traffic uses the detected address while TLS still verifies the saved remote database hostname.
+
+A failed request includes a bounded, credential-redacted excerpt of AWS CLI/plugin startup output and its exit code when available. This can distinguish target connectivity, authentication, missing tools, and data-channel connection failures. Error excerpts can still contain private AWS resource identifiers; do not publish them unredacted. No startup failure is retried automatically.
+
 ### Paste a Session Manager command
 
 Open **Databases → Add database → Import a full SSM command**. Paste a single-line or multiline `aws ssm start-session` command using `AWS-StartPortForwardingSessionToRemoteHost`, then click **Import forwarding settings**. It fills the profile, region, EC2 target, database hostname, remote port, and local port without executing anything. Enter the connection name, database name, and credentials, save, then request and approve the tunnel. SQL still requires approval separately.
