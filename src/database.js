@@ -47,6 +47,7 @@ export function validateConnection(input, profiles) {
 function json(value) { return JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.toString() : v); }
 export async function runDatabaseQuery(c, port, password, sql, params, { signal, timeoutMs = 30000, ca: testCa } = {}) {
   const ca = await databaseTlsCa(c.host, { ca: testCa });
+  const localHost=c.localHost==='::1'?'::1':'127.0.0.1';
   if (signal?.aborted) throw new Error('Query canceled.');
   let destroy = () => {}, timeout, abort, stopped;
   // Race the full operation, including authentication, so a stalled driver cannot keep a request running.
@@ -57,7 +58,7 @@ export async function runDatabaseQuery(c, port, password, sql, params, { signal,
   });
   const operation = async () => {
     if (c.engine === 'postgres') {
-      const client = new pg.Client({ host: '127.0.0.1', port, user: c.username, password, database: c.database, application_name: 'aws-approval-mcp', connectionTimeoutMillis: 10000, ssl: { ca, rejectUnauthorized: true, servername: c.host, checkServerIdentity: (_, cert) => tls.checkServerIdentity(c.host, cert) } });
+      const client = new pg.Client({ host: localHost, port, user: c.username, password, database: c.database, application_name: 'aws-approval-mcp', connectionTimeoutMillis: 10000, ssl: { ca, rejectUnauthorized: true, servername: c.host, checkServerIdentity: (_, cert) => tls.checkServerIdentity(c.host, cert) } });
       client.on('error', () => {});
       destroy = () => { client.connection?.stream?.destroy(); void client.end().catch(() => {}); };
       try {
@@ -85,7 +86,7 @@ export async function runDatabaseQuery(c, port, password, sql, params, { signal,
         return result;
       } finally { destroy(); }
     }
-    const client = mysql.createConnection({ host: c.host, user: c.username, password, database: c.database, port: c.port, stream: () => net.connect({ host: '127.0.0.1', port }), ssl: { ca, rejectUnauthorized: true, verifyIdentity: true }, multipleStatements: false, connectTimeout: 10000, supportBigNumbers: true, bigNumberStrings: true, infileStreamFactory: () => { throw new Error('Local file loading is disabled.'); } });
+    const client = mysql.createConnection({ host: c.host, user: c.username, password, database: c.database, port: c.port, stream: () => net.connect({ host: localHost, port }), ssl: { ca, rejectUnauthorized: true, verifyIdentity: true }, multipleStatements: false, connectTimeout: 10000, supportBigNumbers: true, bigNumberStrings: true, infileStreamFactory: () => { throw new Error('Local file loading is disabled.'); } });
     client.on('error', () => {}); destroy = () => client.destroy();
     const query = (text) => new Promise((resolve, reject) => client.query({ sql: text, timeout: timeoutMs }, (e, result) => e ? reject(e) : resolve(result)));
     try {
@@ -164,7 +165,7 @@ export class DatabaseService {
       const port = this.tunnels.getPort(c.id);
       const password = this.passwords.get(c.id) || (c.passwordEnv ? process.env[c.passwordEnv] : '');
       if (!password) throw new Error('Set the database password in connection settings or its configured environment variable.');
-      try { result = await this.query(c, port, password, request.sql, request.params, auth); }
+      try { result = await this.query({...c,localHost:this.tunnels.getHost?.(c.id)||'127.0.0.1'}, port, password, request.sql, request.params, auth); }
       catch (e) { throw new Error(String(e.message).replaceAll(password, '[REDACTED]')); }
     }
     return { exitCode: 0, stdout: json(result), stderr: '' };
